@@ -1,41 +1,86 @@
-This is a Kotlin Multiplatform project targeting Android, Web, Desktop (JVM).
+# Logue · Frontend (Kotlin Multiplatform + Compose Multiplatform)
 
-* [/shared](./shared/src) is for code that will be shared across your Compose Multiplatform applications.
-  It contains several subfolders:
-  - [commonMain](./shared/src/commonMain/kotlin) is for code that’s common for all targets.
-  - Other folders are for Kotlin code that will be compiled for only the platform indicated in the folder name.
-    For example, if you want to use Apple’s CoreCrypto for the iOS part of your Kotlin app,
-    the [iosMain](./shared/src/iosMain/kotlin) folder would be the right place for such calls.
-    Similarly, if you want to edit the Desktop (JVM) specific part, the [jvmMain](./shared/src/jvmMain/kotlin)
-    folder is the appropriate location.
+Demo de app de emergencias para la **Cruz Roja Mexicana**. Este repositorio es la **app** (Android, Desktop y Web);
+el servidor está en [logue-backend](https://github.com/ManigoldoR15/logue-backend).
 
-### Running the apps
+Generado con el [Kotlin Multiplatform Wizard](https://kmp.jetbrains.com).
 
-Use the run configurations provided by the run widget in your IDE's toolbar. You can also use these commands and options:
+## Arquitectura
 
-- Android app: `./gradlew :androidApp:assembleDebug`
-- Desktop app:
-  - Hot reload: `./gradlew :desktopApp:hotRun --auto`
-  - Standard run: `./gradlew :desktopApp:run`
-- Web app:
-  - Wasm target (faster, modern browsers): `./gradlew :webApp:wasmJsBrowserDevelopmentRun`
-  - JS target (slower, supports older browsers): `./gradlew :webApp:jsBrowserDevelopmentRun`
+Arquitectura local con backend y frontend **separados**. El frontend sigue el patrón
+**UI → ViewModel → Repositorio → Ktor Client → backend**:
 
-### Running tests
+```
+ ui/ (Compose)          viewmodel/                data/                         backend
+ LoginScreen ──login()──▶ LoginViewModel ──────▶ LoginRepository ──POST /login──▶ Ktor :8080
+     ▲                     StateFlow<LoginUiState>   HttpClient + ContentNegotiation   users.json
+     │                            │
+ AppNavigation ◀── sesion.rol ────┘   when(rol) → Ciudadano | Paramédico | Administrador
+```
 
-Use the run button in your IDE's editor gutter, or run tests using Gradle tasks:
+| Rol | Vista |
+|---|---|
+| `CIUDADANO` | Botón **SOS** (mantener 5 s, con barra de progreso) → 4 opciones: disparos, accidente vial, persona inconsciente, múltiples heridos |
+| `PARAMEDICO` | Lista de incidentes de ejemplo con tipo, ubicación y ETA |
+| `ADMINISTRADOR` | Panel con resumen: incidentes activos y unidades disponibles (datos de ejemplo) |
 
-- Android tests: `./gradlew :shared:testAndroidHostTest`
-- Desktop tests: `./gradlew :shared:jvmTest`
-- Web tests:
-  - Wasm target: `./gradlew :shared:wasmJsTest`
-  - JS target: `./gradlew :shared:jsTest`
+Cada vista tiene botón **Cerrar sesión**. Tema rojo Cruz Roja (`#C8102E`).
 
----
+## Estructura
 
-Learn more about [Kotlin Multiplatform](https://www.jetbrains.com/help/kotlin-multiplatform-dev/get-started.html),
-[Compose Multiplatform](https://kotlinlang.org/compose-multiplatform/),
-[Kotlin/Wasm](https://kotl.in/wasm/)…
+```
+frontend/
+├── shared/                      # Código compartido (aquí está casi toda la app)
+│   └── src/
+│       ├── commonMain/kotlin/com/logue/frontend/
+│       │   ├── App.kt                    # Punto de entrada común: LogueTheme + AppNavigation
+│       │   ├── data/
+│       │   │   ├── Models.kt             # Rol, LoginRequest, LoginResponse (@Serializable), Sesion
+│       │   │   ├── HttpEngine.kt         # expect: engine HTTP y BASE_URL por plataforma
+│       │   │   ├── ApiClient.kt          # HttpClient con ContentNegotiation + kotlinx.serialization
+│       │   │   ├── LoginRepository.kt    # POST /login
+│       │   │   └── DatosEjemplo.kt       # Incidentes y unidades de ejemplo
+│       │   ├── viewmodel/
+│       │   │   └── LoginViewModel.kt     # ViewModel + StateFlow<LoginUiState>
+│       │   └── ui/
+│       │       ├── theme/Theme.kt        # Colores Cruz Roja
+│       │       ├── navigation/Rutas.kt   # Rutas @Serializable y when(rol)
+│       │       ├── navigation/AppNavigation.kt  # NavHost
+│       │       └── screens/              # Login, Ciudadano, Emergencia, Paramedico, Administrador, LogueTopBar
+│       ├── jvmMain/.../data/HttpEngine.jvm.kt          # actual: CIO   + http://localhost:8080
+│       ├── androidMain/.../data/HttpEngine.android.kt  # actual: OkHttp + http://10.0.2.2:8080
+│       ├── webMain/.../data/HttpEngine.web.kt          # actual: Js    + http://localhost:8080
+│       └── jvmTest/.../data/LoginRepositoryTest.kt     # Pruebas con MockEngine
+├── desktopApp/   # main() de escritorio: abre una ventana con App()
+├── androidApp/   # MainActivity: setContent { App() }
+└── webApp/       # main() web: ComposeViewport { App() }
+```
 
-We would appreciate your feedback on Compose/Web and Kotlin/Wasm in the public Slack channel [#compose-web](https://slack-chats.kotlinlang.org/c/compose-web).
-If you face any issues, please report them on [YouTrack](https://youtrack.jetbrains.com/newIssue?project=CMP).
+### Engine HTTP por plataforma
+
+| Plataforma | Engine | URL base | Por qué |
+|---|---|---|---|
+| Desktop (JVM) | CIO | `http://localhost:8080` | Engine puro de Kotlin para la JVM |
+| Android | OkHttp | `http://10.0.2.2:8080` | En el emulador, `10.0.2.2` es la PC (`localhost` sería el propio emulador) |
+| Web (JS / Wasm) | Js | `http://localhost:8080` | Usa `fetch` del navegador; requiere CORS en el backend |
+
+## Cómo correr
+
+Requiere JDK 21 y el **backend corriendo** en el puerto 8080 (`./gradlew run` en `logue-backend`).
+Si tu `java` por defecto es otra versión, indica JDK 21 solo para el comando:
+
+```bash
+# Desktop (la plataforma probada)
+JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew :desktopApp:run
+
+# Pruebas de escritorio
+JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 ./gradlew :shared:jvmTest
+```
+
+Otras plataformas (comandos del wizard; no probadas en esta demo):
+
+- Android: `./gradlew :androidApp:assembleDebug` (requiere Android SDK en `local.properties`)
+- Web Wasm: `./gradlew :webApp:wasmJsBrowserDevelopmentRun`
+- Web JS: `./gradlew :webApp:jsBrowserDevelopmentRun`
+
+Usuarios de prueba: `ciudadano1`, `paramedico1`, `admin1`, todos con contraseña `1234`.
